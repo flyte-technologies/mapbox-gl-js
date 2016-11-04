@@ -22,13 +22,16 @@ const assert = require('assert');
  * @private
  */
 class ProgramConfiguration {
+
+    constructor() {
+        this.attributes = [];
+        this.uniforms = [];
+        this.vertexPragmas = { define: {}, initialize: {} };
+        this.fragmentPragmas = { define: {}, initialize: {} };
+    }
+
     static createDynamic(attributes, layer, zoom) {
         const self = new ProgramConfiguration();
-
-        self.attributes = [];
-        self.uniforms = [];
-        self.vertexPragmas = { define: {}, initialize: {} };
-        self.fragmentPragmas = { define: {}, initialize: {} };
 
         const fragmentInit = self.fragmentPragmas.initialize;
         const fragmentDefine = self.fragmentPragmas.define;
@@ -117,22 +120,21 @@ class ProgramConfiguration {
     static createStatic(uniforms) {
         const self = new ProgramConfiguration();
 
-        const pragmas = { define: {}, initialize: {} };
-
-        self.attributes = [];
-        self.uniforms = [];
-        self.vertexPragmas = pragmas;
-        self.fragmentPragmas = pragmas;
+        const fragmentInit = self.fragmentPragmas.initialize;
+        const fragmentDefine = self.fragmentPragmas.define;
+        const vertexInit = self.vertexPragmas.initialize;
+        const vertexDefine = self.vertexPragmas.define;
 
         for (const uniform of uniforms) {
-            assert(uniform.name.slice(0, 2) === 'u_');
+            assert(uniform.name.indexOf('u_') === 0);
+            const name = uniform.name.slice(2);
 
             const type = `{precision} ${uniform.components === 1 ? 'float' : `vec${uniform.components}`}`;
-            pragmas.define[uniform.name.slice(2)] = `uniform ${type} ${uniform.name};\n`;
-            pragmas.initialize[uniform.name.slice(2)] = `${type} ${uniform.name.slice(2)} = ${uniform.name};\n`;
+            fragmentDefine[name] = vertexDefine[name] = `uniform ${type} ${uniform.name};\n`;
+            fragmentInit[name] = vertexInit[name] = `${type} ${name} = ${uniform.name};\n`;
         }
 
-        self.cacheKey = JSON.stringify(pragmas);
+        self.cacheKey = JSON.stringify(self.fragmentPragmas);
 
         return self;
     }
