@@ -26,17 +26,12 @@ class ProgramConfiguration {
     constructor() {
         this.attributes = [];
         this.uniforms = [];
-        this.vertexPragmas = { define: {}, initialize: {} };
-        this.fragmentPragmas = { define: {}, initialize: {} };
+        this.vertexPragmas = {};
+        this.fragmentPragmas = {};
     }
 
     static createDynamic(attributes, layer, zoom) {
         const self = new ProgramConfiguration();
-
-        const fragmentInit = self.fragmentPragmas.initialize;
-        const fragmentDefine = self.fragmentPragmas.define;
-        const vertexInit = self.vertexPragmas.initialize;
-        const vertexDefine = self.vertexPragmas.define;
 
         for (const attribute of attributes) {
             const specification = layer._paintSpecifications[attribute.paintProperty];
@@ -46,20 +41,27 @@ class ProgramConfiguration {
             const name = attribute.name.slice(2);
             const multiplier = attribute.multiplier || (isColor ? 255 : 1);
 
-            fragmentInit[name] = '';
+            const frag = self.fragmentPragmas[name] = {define: [], initialize: []};
+            const vert = self.vertexPragmas[name] = {define: [], initialize: []};
 
             if (layer.isPaintValueFeatureConstant(attribute.paintProperty)) {
                 self.uniforms.push(util.extend({}, attribute, {isColor}));
 
-                fragmentDefine[name] = vertexDefine[name] = `uniform {precision} {type} ${inputName};\n`;
-                fragmentInit[name] = vertexInit[name] = `{precision} {type} ${name} = ${inputName};\n`;
+                frag.define.push(`uniform {precision} {type} ${inputName};`);
+                vert.define.push(`uniform {precision} {type} ${inputName};`);
+
+                frag.initialize.push(`{precision} {type} ${name} = ${inputName};`);
+                vert.initialize.push(`{precision} {type} ${name} = ${inputName};`);
 
             } else if (layer.isPaintValueZoomConstant(attribute.paintProperty)) {
                 self.attributes.push(util.extend({}, attribute, {components: isColor ? 4 : 1, multiplier}));
 
-                fragmentDefine[name] = `varying {precision} {type} ${name};\n`;
-                vertexDefine[name] = `varying {precision} {type} ${name};\n attribute {precision} {type} ${inputName};\n`;
-                vertexInit[name] = `${name} = ${inputName} / ${multiplier}.0;\n`;
+                frag.define.push(`varying {precision} {type} ${name};`);
+                vert.define.push(`varying {precision} {type} ${name};`);
+
+                vert.define.push(`attribute {precision} {type} ${inputName};`);
+
+                vert.initialize.push(`${name} = ${inputName} / ${multiplier}.0;`);
 
             } else {
                 // Pick the index of the first offset to add to the buffers.
@@ -76,8 +78,9 @@ class ProgramConfiguration {
 
                 const tName = `u_${name}_t`;
 
-                fragmentDefine[name] = `varying {precision} {type} ${name};\n`;
-                vertexDefine[name] = `varying {precision} {type} ${name};\n uniform lowp float ${tName};\n`;
+                frag.define.push(`varying {precision} {type} ${name};`);
+                vert.define.push(`varying {precision} {type} ${name};`);
+                vert.define.push(`uniform lowp float ${tName};`);
 
                 self.uniforms.push({
                     name: tName,
@@ -92,8 +95,8 @@ class ProgramConfiguration {
                         multiplier
                     }));
 
-                    vertexDefine[name] += `attribute {precision} vec4 ${inputName};\n`;
-                    vertexInit[name] = `${name} = evaluate_zoom_function_1(${inputName}, ${tName}) / ${multiplier}.0;\n`;
+                    vert.define.push(`attribute {precision} vec4 ${inputName};`);
+                    vert.initialize.push(`${name} = evaluate_zoom_function_1(${inputName}, ${tName}) / ${multiplier}.0;`);
 
                 } else {
                     const inputNames = [];
@@ -105,9 +108,9 @@ class ProgramConfiguration {
                             components: 4,
                             multiplier
                         }));
-                        vertexDefine[name] += `attribute {precision} {type} ${inputName + k};\n`;
+                        vert.define.push(`attribute {precision} {type} ${inputName + k};`);
                     }
-                    vertexInit[name] = `${name} = evaluate_zoom_function_4(${inputNames.join(', ')}, ${tName}) / ${multiplier}.0;\n`;
+                    vert.initialize.push(`${name} = evaluate_zoom_function_4(${inputNames.join(', ')}, ${tName}) / ${multiplier}.0;`);
                 }
             }
         }
@@ -120,18 +123,20 @@ class ProgramConfiguration {
     static createStatic(uniforms) {
         const self = new ProgramConfiguration();
 
-        const fragmentInit = self.fragmentPragmas.initialize;
-        const fragmentDefine = self.fragmentPragmas.define;
-        const vertexInit = self.vertexPragmas.initialize;
-        const vertexDefine = self.vertexPragmas.define;
-
         for (const uniform of uniforms) {
             assert(uniform.name.indexOf('u_') === 0);
             const name = uniform.name.slice(2);
 
-            const type = `{precision} ${uniform.components === 1 ? 'float' : `vec${uniform.components}`}`;
-            fragmentDefine[name] = vertexDefine[name] = `uniform ${type} ${uniform.name};\n`;
-            fragmentInit[name] = vertexInit[name] = `${type} ${name} = ${uniform.name};\n`;
+            const frag = self.fragmentPragmas[name] = {define: [], initialize: []};
+            const vert = self.vertexPragmas[name] = {define: [], initialize: []};
+
+            const type = `${uniform.components === 1 ? 'float' : `vec${uniform.components}`}`;
+
+            frag.define.push(`uniform {precision} ${type} u_${name};`);
+            vert.define.push(`uniform {precision} ${type} u_${name};`);
+
+            frag.initialize.push(`{precision} ${type} ${name} = u_${name};`);
+            vert.initialize.push(`{precision} ${type} ${name} = u_${name};`);
         }
 
         self.cacheKey = JSON.stringify(self.fragmentPragmas);
@@ -259,7 +264,10 @@ function createGetUniform(attribute, stopOffset) {
 
 function applyPragmas(source, pragmas) {
     return source.replace(/#pragma mapbox: ([\w]+) ([\w]+) ([\w]+) ([\w]+)/g, (match, operation, precision, type, name) => {
-        return pragmas[operation][name].replace(/{type}/g, type).replace(/{precision}/g, precision);
+        return pragmas[name][operation]
+            .join('\n')
+            .replace(/{type}/g, type)
+            .replace(/{precision}/g, precision);
     });
 }
 
