@@ -25,8 +25,7 @@ class ProgramConfiguration {
         this.attributes = [];
         this.uniforms = [];
         this.interpolationUniforms = [];
-        this.vertexPragmas = {};
-        this.fragmentPragmas = {};
+        this.pragmas = {vertex: {}, fragment: {}};
         this.cacheKey = '';
     }
 
@@ -149,13 +148,24 @@ class ProgramConfiguration {
     }
 
     getFragmentPragmas(name) {
-        this.fragmentPragmas[name] = this.fragmentPragmas[name] || {define: [], initialize: []};
-        return this.fragmentPragmas[name];
+        const frag = this.pragmas.fragment;
+        frag[name] = frag[name] || {define: [], initialize: []};
+        return frag[name];
     }
 
     getVertexPragmas(name) {
-        this.vertexPragmas[name] = this.vertexPragmas[name] || {define: [], initialize: []};
-        return this.vertexPragmas[name];
+        const vert = this.pragmas.vertex;
+        vert[name] = vert[name] || {define: [], initialize: []};
+        return vert[name];
+    }
+
+    applyPragmas(source, shaderType) {
+        return source.replace(/#pragma mapbox: ([\w]+) ([\w]+) ([\w]+) ([\w]+)/g, (match, operation, precision, type, name) => {
+            return this.pragmas[shaderType][name][operation]
+                .join('\n')
+                .replace(/{type}/g, type)
+                .replace(/{precision}/g, precision);
+        });
     }
 
     populatePaintArray(layer, paintArray, length, globalProperties, featureProperties) {
